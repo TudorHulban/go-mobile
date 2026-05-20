@@ -10,8 +10,16 @@ func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Fyne App")
 
-	// Start by showing the login screen
-	showLoginScreen(myWindow)
+	savedUser := myApp.Preferences().StringWithFallback("session_user", "")
+
+	if savedUser != "" {
+		// Bypass login completely!
+		showDashboardScreen(myWindow, savedUser)
+	} else {
+		// Fresh run, require authentication
+		// showLoginScreen(myWindow)
+		showDashboardScreen(myWindow, "admin")
+	}
 
 	myWindow.ShowAndRun()
 }

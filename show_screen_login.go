@@ -21,7 +21,12 @@ func showLoginScreen(window fyne.Window) {
 		"Sign In",
 		func() {
 			if usernameEntry.Text == "admin" && passwordEntry.Text == "password" {
-				showDashboardScreen(window)
+				// Save user preference dynamically to device filesystem
+				fyne.CurrentApp().
+					Preferences().
+					SetString("session_user", usernameEntry.Text)
+
+				showDashboardScreen(window, usernameEntry.Text)
 			} else {
 				dialog.ShowError(
 					errors.New("Invalid username or password"),
