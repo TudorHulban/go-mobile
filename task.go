@@ -6,7 +6,7 @@ type Task struct {
 	Status string
 }
 
-var _Tasks = []Task{
+var _Tasks = []*Task{
 	{
 		Name:   "Operation 1",
 		Status: "init",
