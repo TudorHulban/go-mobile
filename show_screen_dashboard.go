@@ -16,16 +16,27 @@ func showDashboardScreen(window fyne.Window, username string) {
 
 	// Define Detail Widgets (Using unified regular labels for font consistency)
 	detailTitle := widget.NewLabel("Select a task to view details")
-	ownerLabel := widget.NewLabel("Owner: None")
-	statusLabel := widget.NewLabel("Status:")
 
-	statusSelector := widget.NewSelect([]string{
-		"init", "not started", "assigned", "in work", "work done", "to bill", "invoiced", "closed",
-	}, nil)
+	ownerLabel := widget.NewLabel("Owner: ")
+	ownerSelector := widget.NewSelect(
+		[]string{
+			"Alice", "Bob", "Charlie", "Unassigned", // Add your typical process owners here
+		},
+		nil,
+	)
+	ownerSelector.Hide()
+
+	statusLabel := widget.NewLabel("Status:")
+	statusSelector := widget.NewSelect(
+		[]string{
+			"init", "not started", "assigned", "in work", "work done", "to bill", "invoiced", "closed",
+		},
+		nil,
+	)
 	statusSelector.Hide()
 
 	// Create the Update Button (Disabled by default)
-	updateBtn := widget.NewButton("Update Status", nil)
+	updateBtn := widget.NewButton("Save Changes", nil)
 	updateBtn.Disable()
 	updateBtn.Hide()
 
@@ -33,27 +44,38 @@ func showDashboardScreen(window fyne.Window, username string) {
 	var currentTaskID widget.ListItemID
 	var taskSelected = false
 
-	// Enable update button only when a real change happens in the dropdown
-	statusSelector.OnChanged = func(newStatus string) {
+	// Helper function to check if anything actually changed
+	checkIfModified := func() {
 		if !taskSelected {
 			return
 		}
+		hasOwnerChanged := ownerSelector.Selected != _Tasks[currentTaskID].Owner
+		hasStatusChanged := statusSelector.Selected != _Tasks[currentTaskID].Status
 
-		// If the selector position matches what the task already is, don't enable update
-		if newStatus != _Tasks[currentTaskID].Status {
+		if hasOwnerChanged || hasStatusChanged {
 			updateBtn.Enable()
 		} else {
 			updateBtn.Disable()
 		}
 	}
 
+	// Attach modification checks to BOTH dropdown changes
+	ownerSelector.OnChanged = func(newOwner string) {
+		checkIfModified()
+	}
+	statusSelector.OnChanged = func(newStatus string) {
+		checkIfModified()
+	}
+
 	// Group widgets cleanly into a structured card layout
-	// Combines the text label and combo selector onto a single horizontal line
+	// Combines the text label and combo selector
+	// onto a single horizontal line
+	ownerInlineRow := container.NewHBox(ownerLabel, ownerSelector)
 	statusInlineRow := container.NewHBox(statusLabel, statusSelector)
 
 	detailPanel := container.NewVBox(
 		detailTitle,
-		ownerLabel,
+		ownerInlineRow,
 		statusInlineRow,
 		updateBtn,
 	)
@@ -76,13 +98,16 @@ func showDashboardScreen(window fyne.Window, username string) {
 
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			task := _Tasks[id]
+
 			box := item.(*fyne.Container)
 			nameLabel := box.Objects[0].(*widget.Label)
 			badgeText := box.Objects[1].(*canvas.Text)
 
 			nameLabel.SetText(task.Name)
+
 			badgeText.Text = "  " + task.Status + "  "
 			badgeText.Color = getStatusColor(task.Status)
+
 			box.Refresh()
 		},
 	)
@@ -93,7 +118,11 @@ func showDashboardScreen(window fyne.Window, username string) {
 			return
 		}
 
-		// Commit chosen state to your global business slice
+		// 1. Drop the guard flag BEFORE mutating data or refreshing components
+		taskSelected = false
+
+		// commit chosen state
+		_Tasks[currentTaskID].Owner = ownerSelector.Selected
 		_Tasks[currentTaskID].Status = statusSelector.Selected
 
 		// Gray out the button immediately after successful update
@@ -102,6 +131,12 @@ func showDashboardScreen(window fyne.Window, username string) {
 		// Refresh entire window layout to repaint the list row colors instantly
 		// window.Canvas().Refresh(window.Content())
 		taskList.RefreshItem(currentTaskID)
+
+		// 2. Clear any active row selection highlight so it doesn't leave ghost states floating
+		taskList.Unselect(currentTaskID)
+
+		// 3. Re-engage your modification listeners safely now that updates are done
+		taskSelected = true
 	}
 
 	// Intercept user selection to populate information fields down below
@@ -115,20 +150,25 @@ func showDashboardScreen(window fyne.Window, username string) {
 
 		// Format output context string explicitly
 		detailTitle.SetText("Task - " + task.Name)
-		ownerLabel.SetText("Owner: " + task.Owner)
 
 		// Synchronize dropdown state with currently stored asset values
+		ownerSelector.SetSelected(task.Owner)
 		statusSelector.SetSelected(task.Status)
 
 		// Reveal bottom controls on first selection
+		ownerSelector.Show()
 		statusSelector.Show()
 		updateBtn.Show()
 
 		// Lock button back down until a new option is explicitly chosen
 		updateBtn.Disable()
 
-		taskSelected = true
+		// targeted refresh
+		ownerSelector.Refresh()
+		statusSelector.Refresh()
 		detailPanel.Refresh()
+
+		taskSelected = true
 	}
 
 	// Assemble Layout Architecture
