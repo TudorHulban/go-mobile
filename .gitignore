@@ -1,0 +1,11 @@
+# Ignore the fyne-cross compiler output directory
+fyne-cross/
+
+# Ignore any local Go binary builds
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dist/
+bin/
