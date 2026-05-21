@@ -35,7 +35,7 @@ func (t *Team) GetTeamMembers() []string {
 	return result
 }
 
-func (t *Team) AddTask(task *Task) error {
+func (t *Team) UpsertTask(task *Task) error {
 	if _, exists := t.TeamMembers[task.OwnerID]; !exists && task.OwnerID != 0 {
 		return fmt.Errorf(
 			"unknown owner ID: %d",
@@ -43,6 +43,21 @@ func (t *Team) AddTask(task *Task) error {
 		)
 	}
 
+	// update
+	if task.ID != 0 {
+		currentTask, errGet := t.GetTaskBy(task.ID)
+		if errGet != nil {
+			return errGet
+		}
+
+		// currentTask.Name = task.Name
+		currentTask.OwnerID = task.OwnerID
+		currentTask.Status = task.Status
+
+		return nil
+	}
+
+	// create
 	t.lastTaskID++
 
 	t.TeamTasks[t.lastTaskID] = task

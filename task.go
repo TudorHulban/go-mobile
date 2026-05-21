@@ -4,6 +4,7 @@ type Task struct {
 	Name   string
 	Status string
 
+	ID      uint8
 	OwnerID uint8
 }
 

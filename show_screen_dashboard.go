@@ -9,6 +9,85 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+type stateDashboard struct {
+	selectorOwner  *widget.Select
+	selectorStatus *widget.Select
+
+	btnUpsert *widget.Button
+
+	currentTaskID uint8
+	taskSelected  bool
+}
+
+func (a *application) checkIfModified(state *stateDashboard) {
+	if !state.taskSelected {
+		return
+	}
+
+	currentTask, errGetTask := a.team.GetTaskBy(state.currentTaskID)
+	if errGetTask != nil {
+		return
+	}
+
+	assignedTeamMember, errGetPerson := a.team.GetTeamMemberBy(currentTask.OwnerID)
+	if errGetPerson != nil {
+		assignedTeamMember = "" // Handle case where task has no owner yet or owner missing safely
+
+	}
+
+	hasOwnerChanged := state.selectorOwner.Selected != assignedTeamMember
+	hasStatusChanged := state.selectorStatus.Selected != currentTask.Status
+
+	if hasOwnerChanged || hasStatusChanged {
+		state.btnUpsert.Enable()
+	} else {
+		state.btnUpsert.Disable()
+	}
+}
+
+func (a *application) saveTaskChanges(state *stateDashboard) error {
+	return a.team.UpsertTask(
+		&Task{
+			Status:  state.selectorStatus.Selected,
+			OwnerID: uint8(state.selectorOwner.SelectedIndex()),
+		},
+	)
+}
+
+func (a *application) buildDetailPanel(state *stateDashboard) fyne.CanvasObject {
+	state.selectorOwner = widget.NewSelect(
+		a.team.GetTeamMembers(),
+		func(s string) {
+			a.checkIfModified(state)
+		},
+	)
+
+	state.selectorStatus = widget.NewSelect(
+		[]string{"init", "in work", "closed"},
+		func(s string) {
+			a.checkIfModified(state)
+		},
+	)
+
+	state.btnUpsert = widget.NewButton(
+		"Save Changes",
+		func() {
+			a.saveTaskChanges(state)
+		},
+	)
+
+	state.selectorOwner.Hide()
+	state.selectorStatus.Hide()
+	state.btnUpsert.Hide()
+
+	return container.NewVBox(
+		widget.NewLabel("Task Details"),
+		container.NewHBox(widget.NewLabel("Owner:"), state.selectorOwner),
+		container.NewHBox(widget.NewLabel("Status:"), state.selectorStatus),
+		state.btnUpsert,
+	)
+}
+
 type TaskRow struct {
 	fyne.CanvasObject
 	name   *widget.Label

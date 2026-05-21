@@ -22,21 +22,21 @@ func main() {
 		}...,
 	)
 
-	team.AddTask(
+	team.UpsertTask(
 		&Task{
 			Name:   "Operation 1",
 			Status: "init",
 		},
 	)
 
-	team.AddTask(
+	team.UpsertTask(
 		&Task{
 			Name:   "Revision 1",
 			Status: "not started",
 		},
 	)
 
-	team.AddTask(
+	team.UpsertTask(
 		&Task{
 			Name:    "Operation 2",
 			Status:  "assigned",
