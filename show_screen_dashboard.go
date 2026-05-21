@@ -112,46 +112,25 @@ func (a *application) showDashboardScreen(window fyne.Window, username string) {
 	)
 	selectorStatus.Hide()
 
-	updateBtn := widget.NewButton("Save Changes", nil)
-	updateBtn.Disable()
-	updateBtn.Hide()
+	btnUpsert := widget.NewButton("Save Changes", nil)
+	btnUpsert.Disable()
+	btnUpsert.Hide()
 
-	var currentTaskID uint8
-	var taskSelected bool
-
-	checkIfModified := func() {
-		if !taskSelected {
-			return
-		}
-
-		currentTask, errGetTask := a.team.GetTaskBy(currentTaskID)
-		if errGetTask != nil {
-			return
-		}
-
-		assignedTeamMember, errGetPerson := a.team.GetTeamMemberBy(currentTask.OwnerID)
-		if errGetPerson != nil {
-			assignedTeamMember = "" // Handle case where task has no owner yet or owner missing safely
-
-		}
-
-		hasOwnerChanged := selectorOwner.Selected != assignedTeamMember
-		hasStatusChanged := selectorStatus.Selected != currentTask.Status
-
-		if hasOwnerChanged || hasStatusChanged {
-			updateBtn.Enable()
-		} else {
-			updateBtn.Disable()
-		}
+	// 1. Initialize state object ONCE
+	state := &stateDashboard{
+		selectorOwner:  selectorOwner,
+		selectorStatus: selectorStatus,
+		btnUpsert:      btnUpsert,
+		taskSelected:   false,
 	}
 
-	selectorOwner.OnChanged = func(newOwner string) {
-		checkIfModified()
+	onFieldChanged := func(_ string) { // The string parameter is the new value, but we can ignore it since checkIfModified reads from the widgets directly
+		a.checkIfModified(state)
 	}
 
-	selectorStatus.OnChanged = func(newStatus string) {
-		checkIfModified()
-	}
+	// 3. Assign the same callback to both selectors
+	selectorOwner.OnChanged = onFieldChanged
+	selectorStatus.OnChanged = onFieldChanged
 
 	ownerInlineRow := container.NewHBox(ownerLabel, selectorOwner)
 	statusInlineRow := container.NewHBox(statusLabel, selectorStatus)
@@ -160,7 +139,7 @@ func (a *application) showDashboardScreen(window fyne.Window, username string) {
 		detailTitle,
 		ownerInlineRow,
 		statusInlineRow,
-		updateBtn,
+		btnUpsert,
 	)
 
 	// =========================================================
@@ -209,21 +188,23 @@ func (a *application) showDashboardScreen(window fyne.Window, username string) {
 	// =========================================================
 	// Save Button
 	// =========================================================
-	updateBtn.OnTapped = func() {
-		if !taskSelected {
+	btnUpsert.OnTapped = func() {
+		// 1. Check the shared state pointer
+		if !state.taskSelected {
 			return
 		}
 
-		taskSelected = false
+		// Guard against double-clicks or mid-process changes
+		state.taskSelected = false
 
-		currentTask, errGetTask := a.team.GetTaskBy(currentTaskID)
+		currentTask, errGetTask := a.team.GetTaskBy(state.currentTaskID)
 		if errGetTask != nil {
+			state.taskSelected = true // Reset guard before leaving
 			return
 		}
 
 		// Look up the selected string name from the dropdown back into its uint8 ID
 		var newOwnerID uint8
-
 		for memberID, name := range a.team.TeamMembers {
 			if name == selectorOwner.Selected {
 				newOwnerID = memberID
@@ -235,20 +216,26 @@ func (a *application) showDashboardScreen(window fyne.Window, username string) {
 		currentTask.OwnerID = newOwnerID
 		currentTask.Status = selectorStatus.Selected
 
-		updateBtn.Disable()
+		// UI Feedback: immediate disable while processing/unselecting
+		btnUpsert.Disable()
 
 		// Refresh using Fyne's local row selection index
 		taskIDs := a.team.GetTasksIDs()
 
 		for rowIdx, dbID := range taskIDs {
-			if dbID == currentTaskID {
+			if dbID == state.currentTaskID {
 				taskList.RefreshItem(rowIdx)
+				// Note: Unselect will clear the panel, so if your UI hides
+				// things on unselect, that logic will execute here.
 				taskList.Unselect(rowIdx)
+
 				break
 			}
 		}
 
-		taskSelected = true
+		// 2. We don't turn state.taskSelected back to true here because
+		// unselecting the list item means no task is active anymore!
+		// Instead, we leave it false and let OnSelected flip it to true when they click a new one.
 	}
 
 	// =========================================================
@@ -260,37 +247,44 @@ func (a *application) showDashboardScreen(window fyne.Window, username string) {
 			return
 		}
 
-		// Map the UI index to your actual Database ID
-		currentTaskID = taskIDs[id]
-		taskSelected = false
+		// 1. Set this to false FIRST.
+		// This acts as a guard. When SetSelected fires OnChanged below,
+		// checkIfModified will see this is false and safely return early.
+		state.taskSelected = false
+
+		// 2. Assign the ID to your shared state struct
+		state.currentTaskID = taskIDs[id]
 
 		// Pull directly from your structured map framework
-		task, errGetTask := a.team.GetTaskBy(currentTaskID)
+		task, errGetTask := a.team.GetTaskBy(state.currentTaskID)
 		if errGetTask != nil {
 			return
 		}
 
-		// fmt.Printf("owner raw ID = %d\n", task.OwnerID)
-		// fmt.Printf("selected status=[%s]\n", task.Status)
-
 		detailTitle.SetText("Task - " + task.Name)
 
-		// Get owner text string from their uint8 ID to update selector component safely
+		// Get owner text string from their uint8 ID
 		ownerName, _ := a.team.GetTeamMemberBy(task.OwnerID)
 
+		// 3. Update the selector components programmatically
 		selectorOwner.SetSelected(ownerName)
 		selectorStatus.SetSelected(task.Status)
 
+		// 4. Show the components
 		selectorOwner.Show()
 		selectorStatus.Show()
-		updateBtn.Show()
-		updateBtn.Disable()
+		btnUpsert.Show()
 
-		selectorOwner.Refresh()
-		selectorStatus.Refresh()
+		// 5. Now that the UI fully matches the database, turn the guard off
+		state.taskSelected = true
+
+		// 6. Force an explicit check to ensure the button is correctly disabled
+		a.checkIfModified(state)
+
+		// Note: Fyne automatically calls Refresh() inside SetSelected() and Show(),
+		// so you don't need to refresh the selectors manually.
+		// Just refresh the parent container if it needs a layout recalculation:
 		detailPanel.Refresh()
-
-		taskSelected = true
 	}
 
 	// =========================================================
