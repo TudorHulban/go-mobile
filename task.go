@@ -2,47 +2,26 @@ package main
 
 type Task struct {
 	Name   string
-	Owner  string
 	Status string
+
+	OwnerID uint8
 }
 
-var _Tasks = []*Task{
-	{
-		Name:   "Operation 1",
-		Status: "init",
-	},
-	{
-		Name:   "Revision 1",
-		Status: "not started",
-	},
-	{
-		Name:   "Operation 2",
-		Status: "assigned",
-		Owner:  "John Smith",
-	},
-	{
-		Name:   "Operation 3",
-		Status: "in work",
-		Owner:  "John Smith",
-	},
-	{
-		Name:   "Operation 7",
-		Status: "work done",
-		Owner:  "Tom Sawyer",
-	},
-	{
-		Name:   "Operation 8",
-		Status: "to bill",
-		Owner:  "Tom Sawyer",
-	},
-	{
-		Name:   "Operation 9",
-		Status: "invoiced",
-		Owner:  "Mary Black",
-	},
-	{
-		Name:   "Operation 10",
-		Status: "closed",
-		Owner:  "Tom Sawyer",
-	},
+type Tasks []*Task
+
+func (t Tasks) GetNoTasksPerOwner() map[uint8]uint8 {
+	allTasks := make(map[uint8]uint8, 0)
+
+	for _, task := range t {
+		_, exists := allTasks[task.OwnerID]
+		if exists {
+			allTasks[task.OwnerID]++
+
+			continue
+		}
+
+		allTasks[task.OwnerID] = 1
+	}
+
+	return allTasks
 }

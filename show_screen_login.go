@@ -9,7 +9,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-func showLoginScreen(window fyne.Window) {
+func (a *application) showLoginScreen(window fyne.Window) {
 	titleLabel := widget.NewLabel("Account Login")
 	usernameEntry := widget.NewEntry()
 	usernameEntry.SetPlaceHolder("Username")
@@ -26,7 +26,7 @@ func showLoginScreen(window fyne.Window) {
 					Preferences().
 					SetString("session_user", usernameEntry.Text)
 
-				showDashboardScreen(window, usernameEntry.Text)
+				a.showDashboardScreen(window, usernameEntry.Text)
 			} else {
 				dialog.ShowError(
 					errors.New("Invalid username or password"),

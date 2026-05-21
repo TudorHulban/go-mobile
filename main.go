@@ -3,22 +3,65 @@ package main
 import (
 	// Added standard Go errors package
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 )
 
-func main() {
-	myApp := app.New()
-	myWindow := myApp.NewWindow("Fyne App")
+type application struct {
+	ui   fyne.App
+	team Team
+}
 
-	savedUser := myApp.Preferences().StringWithFallback("session_user", "")
+func main() {
+	team := NewTeam(
+		[]string{
+			"Unassigned",
+			"Alice",
+			"Bob",
+			"Charlie",
+		}...,
+	)
+
+	team.AddTask(
+		&Task{
+			Name:   "Operation 1",
+			Status: "init",
+		},
+	)
+
+	team.AddTask(
+		&Task{
+			Name:   "Revision 1",
+			Status: "not started",
+		},
+	)
+
+	team.AddTask(
+		&Task{
+			Name:    "Operation 2",
+			Status:  "assigned",
+			OwnerID: 1,
+		},
+	)
+
+	a := application{
+		ui:   app.New(),
+		team: *team,
+	}
+
+	myWindow := a.ui.NewWindow("Fyne App")
+
+	savedUser := a.ui.
+		Preferences().
+		StringWithFallback("session_user", "")
 
 	if savedUser != "" {
 		// Bypass login completely!
-		showDashboardScreen(myWindow, savedUser)
+		a.showDashboardScreen(myWindow, savedUser)
 	} else {
 		// Fresh run, require authentication
 		// showLoginScreen(myWindow)
-		showDashboardScreen(myWindow, "admin")
+		a.showDashboardScreen(myWindow, "admin")
 	}
 
 	myWindow.ShowAndRun()

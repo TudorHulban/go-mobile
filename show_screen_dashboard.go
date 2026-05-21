@@ -9,48 +9,55 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-func showDashboardScreen(window fyne.Window, username string) {
-	// Header Area
-	greetingLabel := widget.NewLabel("Hello, " + username + " 👋")
+type TaskRow struct {
+	fyne.CanvasObject
+	name   *widget.Label
+	status *canvas.Text
+}
+
+func (a *application) showDashboardScreen(window fyne.Window, username string) {
+	greetingLabel := widget.NewLabel("Hi, " + username + " 👋")
 	greetingLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-	// Define Detail Widgets (Using unified regular labels for font consistency)
 	detailTitle := widget.NewLabel("Select a task to view details")
+	ownerLabel := widget.NewLabel("Owner:")
 
-	ownerLabel := widget.NewLabel("Owner: ")
-	ownerSelector := widget.NewSelect(
-		[]string{
-			"Alice", "Bob", "Charlie", "Unassigned", // Add your typical process owners here
-		},
-		nil,
-	)
-	ownerSelector.Hide()
+	// Use team members for the dropdown selector
+	selectorOwner := widget.NewSelect(a.team.GetTeamMembers(), nil)
+	selectorOwner.Hide()
 
 	statusLabel := widget.NewLabel("Status:")
-	statusSelector := widget.NewSelect(
-		[]string{
-			"init", "not started", "assigned", "in work", "work done", "to bill", "invoiced", "closed",
-		},
+	selectorStatus := widget.NewSelect(
+		[]string{"init", "not started", "assigned", "in work", "work done", "to bill", "invoiced", "closed"},
 		nil,
 	)
-	statusSelector.Hide()
+	selectorStatus.Hide()
 
-	// Create the Update Button (Disabled by default)
 	updateBtn := widget.NewButton("Save Changes", nil)
 	updateBtn.Disable()
 	updateBtn.Hide()
 
-	// Track transactional row mutations within this block scope
-	var currentTaskID widget.ListItemID
-	var taskSelected = false
+	var currentTaskID uint8
+	var taskSelected bool
 
-	// Helper function to check if anything actually changed
 	checkIfModified := func() {
 		if !taskSelected {
 			return
 		}
-		hasOwnerChanged := ownerSelector.Selected != _Tasks[currentTaskID].Owner
-		hasStatusChanged := statusSelector.Selected != _Tasks[currentTaskID].Status
+
+		currentTask, errGetTask := a.team.GetTaskBy(currentTaskID)
+		if errGetTask != nil {
+			return
+		}
+
+		assignedTeamMember, errGetPerson := a.team.GetTeamMemberBy(currentTask.OwnerID)
+		if errGetPerson != nil {
+			assignedTeamMember = "" // Handle case where task has no owner yet or owner missing safely
+
+		}
+
+		hasOwnerChanged := selectorOwner.Selected != assignedTeamMember
+		hasStatusChanged := selectorStatus.Selected != currentTask.Status
 
 		if hasOwnerChanged || hasStatusChanged {
 			updateBtn.Enable()
@@ -59,19 +66,16 @@ func showDashboardScreen(window fyne.Window, username string) {
 		}
 	}
 
-	// Attach modification checks to BOTH dropdown changes
-	ownerSelector.OnChanged = func(newOwner string) {
-		checkIfModified()
-	}
-	statusSelector.OnChanged = func(newStatus string) {
+	selectorOwner.OnChanged = func(newOwner string) {
 		checkIfModified()
 	}
 
-	// Group widgets cleanly into a structured card layout
-	// Combines the text label and combo selector
-	// onto a single horizontal line
-	ownerInlineRow := container.NewHBox(ownerLabel, ownerSelector)
-	statusInlineRow := container.NewHBox(statusLabel, statusSelector)
+	selectorStatus.OnChanged = func(newStatus string) {
+		checkIfModified()
+	}
+
+	ownerInlineRow := container.NewHBox(ownerLabel, selectorOwner)
+	statusInlineRow := container.NewHBox(statusLabel, selectorStatus)
 
 	detailPanel := container.NewVBox(
 		detailTitle,
@@ -80,109 +84,147 @@ func showDashboardScreen(window fyne.Window, username string) {
 		updateBtn,
 	)
 
-	// Build Top List Widget
+	// =========================================================
+	// Task List
+	// =========================================================
 	var taskList *widget.List
 
 	taskList = widget.NewList(
 		func() int {
-			return len(_Tasks)
+			return len(a.team.TeamTasks)
 		},
 
 		func() fyne.CanvasObject {
-			taskName := widget.NewLabel("Template Task Name")
+			taskName := widget.NewLabel("Template Task")
 			statusBadge := canvas.NewText("STATUS", color.White)
 			statusBadge.TextStyle = fyne.TextStyle{Bold: true}
 
-			return container.NewBorder(nil, nil, nil, statusBadge, taskName)
+			return container.NewHBox(taskName, statusBadge)
 		},
 
 		func(id widget.ListItemID, item fyne.CanvasObject) {
-			task := _Tasks[id]
+			// Map Fyne's sequence ID to your custom Map uint8 keys
+			taskIDs := a.team.GetTasksIDs()
+			if int(id) >= len(taskIDs) {
+				return
+			}
+			actualID := taskIDs[id]
+
+			currentTask, errGetTask := a.team.GetTaskBy(actualID)
+			if errGetTask != nil {
+				return
+			}
 
 			box := item.(*fyne.Container)
-			nameLabel := box.Objects[0].(*widget.Label)
+			labelName := box.Objects[0].(*widget.Label)
 			badgeText := box.Objects[1].(*canvas.Text)
 
-			nameLabel.SetText(task.Name)
+			labelName.SetText(currentTask.Name)
+			badgeText.Text = "  " + currentTask.Status + "  "
+			badgeText.Color = getStatusColor(currentTask.Status)
 
-			badgeText.Text = "  " + task.Status + "  "
-			badgeText.Color = getStatusColor(task.Status)
-
-			box.Refresh()
+			badgeText.Refresh()
 		},
 	)
 
-	// Define the save operation routine
+	// =========================================================
+	// Save Button
+	// =========================================================
 	updateBtn.OnTapped = func() {
 		if !taskSelected {
 			return
 		}
 
-		// 1. Drop the guard flag BEFORE mutating data or refreshing components
 		taskSelected = false
 
-		// commit chosen state
-		_Tasks[currentTaskID].Owner = ownerSelector.Selected
-		_Tasks[currentTaskID].Status = statusSelector.Selected
+		currentTask, errGetTask := a.team.GetTaskBy(currentTaskID)
+		if errGetTask != nil {
+			return
+		}
 
-		// Gray out the button immediately after successful update
+		// Look up the selected string name from the dropdown back into its uint8 ID
+		var newOwnerID uint8
+
+		for memberID, name := range a.team.TeamMembers {
+			if name == selectorOwner.Selected {
+				newOwnerID = memberID
+				break
+			}
+		}
+
+		// Update the real data objects
+		currentTask.OwnerID = newOwnerID
+		currentTask.Status = selectorStatus.Selected
+
 		updateBtn.Disable()
 
-		// Refresh entire window layout to repaint the list row colors instantly
-		// window.Canvas().Refresh(window.Content())
-		taskList.RefreshItem(currentTaskID)
+		// Refresh using Fyne's local row selection index
+		taskIDs := a.team.GetTasksIDs()
 
-		// 2. Clear any active row selection highlight so it doesn't leave ghost states floating
-		taskList.Unselect(currentTaskID)
+		for rowIdx, dbID := range taskIDs {
+			if dbID == currentTaskID {
+				taskList.RefreshItem(rowIdx)
+				taskList.Unselect(rowIdx)
+				break
+			}
+		}
 
-		// 3. Re-engage your modification listeners safely now that updates are done
 		taskSelected = true
 	}
 
-	// Intercept user selection to populate information fields down below
+	// =========================================================
+	// Row Selection
+	// =========================================================
 	taskList.OnSelected = func(id widget.ListItemID) {
-		currentTaskID = id
+		taskIDs := a.team.GetTasksIDs()
+		if int(id) >= len(taskIDs) {
+			return
+		}
 
-		// Set guard flag to false briefly
-		// to prevent SetSelected from falsely triggering OnChanged
+		// Map the UI index to your actual Database ID
+		currentTaskID = taskIDs[id]
 		taskSelected = false
-		task := _Tasks[id]
 
-		// Format output context string explicitly
+		// Pull directly from your structured map framework
+		task, errGetTask := a.team.GetTaskBy(currentTaskID)
+		if errGetTask != nil {
+			return
+		}
+
+		// fmt.Printf("owner raw ID = %d\n", task.OwnerID)
+		// fmt.Printf("selected status=[%s]\n", task.Status)
+
 		detailTitle.SetText("Task - " + task.Name)
 
-		// Synchronize dropdown state with currently stored asset values
-		ownerSelector.SetSelected(task.Owner)
-		statusSelector.SetSelected(task.Status)
+		// Get owner text string from their uint8 ID to update selector component safely
+		ownerName, _ := a.team.GetTeamMemberBy(task.OwnerID)
 
-		// Reveal bottom controls on first selection
-		ownerSelector.Show()
-		statusSelector.Show()
+		selectorOwner.SetSelected(ownerName)
+		selectorStatus.SetSelected(task.Status)
+
+		selectorOwner.Show()
+		selectorStatus.Show()
 		updateBtn.Show()
-
-		// Lock button back down until a new option is explicitly chosen
 		updateBtn.Disable()
 
-		// targeted refresh
-		ownerSelector.Refresh()
-		statusSelector.Refresh()
+		selectorOwner.Refresh()
+		selectorStatus.Refresh()
 		detailPanel.Refresh()
 
 		taskSelected = true
 	}
 
-	// Assemble Layout Architecture
+	// =========================================================
+	// Layout & Wrappers
+	// =========================================================
 	splitView := container.NewVSplit(taskList, detailPanel)
-	splitView.Offset = 0.55 // Split layout cleanly near the screen center
+	splitView.Offset = 0.55
 
 	logoutBtn := widget.NewButton(
 		"Log Out",
 		func() {
-			fyne.CurrentApp().
-				Preferences().
-				RemoveValue("session_user")
-
-			showLoginScreen(window)
+			fyne.CurrentApp().Preferences().RemoveValue("session_user")
+			a.showLoginScreen(window)
 		},
 	)
 
