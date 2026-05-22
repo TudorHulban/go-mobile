@@ -60,6 +60,8 @@ func (t *Team) UpsertTask(task *Task) error {
 	// create
 	t.lastTaskID++
 
+	task.ID = t.lastTaskID
+
 	t.TeamTasks[t.lastTaskID] = task
 
 	return nil
